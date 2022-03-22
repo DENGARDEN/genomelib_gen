@@ -3,26 +3,53 @@
 import re
 import pandas as pd
 import numpy as np
-from sklearn.semi_supervised import SelfTrainingClassifier
 import xlsxwriter
 import random
+import openpyxl
 
 SEQUENCE_LENGTH_FOR_VALIDATION = 32
 RANDOM_SAMPLING_CONSTANT = 60
 GUIDE_LENGTH = 20
+NUMBER_OF_FULLY_MATCHED_TARGET = 60
 nt = ["A", "T", "G", "C"]
 NT = 4
 
 # input validation
 def seq_validator(data):
+    if data[0] == "#":
+        return None
     m = re.findall(r"^[A|a|T|t|C|c|G|g]+$", data)
     return m[0] if m else None
 
 
 # input pre-processing
 def input_processor(file):
+    """_summary_
+    dictionary element of {gene name : 32 bp sequence (context + PAM + protospacer)
 
-    seq_collection = dict()
+    template
+
+    Args:
+        file (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    df = pd.read_excel(file, engine="openpyxl", index_col=0)
+    seq_collection = df.set_index(["#Gene Name"])[
+        "#Sequence with context (4 + 4 + 20 + 4)"
+    ].to_dict()
+    df = None
+
+    # dictionary pre-processing
+    keys_to_deleted = []
+    for item in seq_collection:
+        if seq_validator(seq_collection[item]) is None:
+            keys_to_deleted.append(item)
+
+    for key in keys_to_deleted:
+        seq_collection.pop(key)
+
     return seq_collection
 
 
@@ -319,7 +346,7 @@ class Mutation:
         writer = pd.ExcelWriter("Mismatched target (3bp).xlsx", engine="xlsxwriter")
         df.to_excel(writer, sheet_name="3 bp MM")
         writer.save()
-    
+
     # Mismatched target (4bp)
     def mt_4(self, seed):
         """_summary_
@@ -408,6 +435,43 @@ def PAM(seed, length=4):
     writer.save()
 
 
+def guide_random_generator(iter):
+    """_summary_"""
+    guide_collection = pd.DataFrame(
+        columns=[
+            "20 bp Randomly generated fully matched targets",
+        ]
+    )
+
+    # Randomly generating unique guide sequences
+    for i in range(int(iter)):
+        string_temp = "TTTR"
+
+        for j in range(GUIDE_LENGTH - 4):
+            string_temp += nt[random.sample(range(0, len(nt)), 1)[0]]
+
+        # TODO: is there any better way
+        # no duplicates
+        if (
+            guide_collection["20 bp Randomly generated fully matched targets"]
+            .str.contains(string_temp)
+            .any()
+        ):
+            continue
+        guide_collection = guide_collection.append(
+            {"20 bp Randomly generated fully matched targets": f"{string_temp}"},
+            ignore_index=True,
+        )
+        print(f"{i}-th random sequence has been generated.")
+
+    # Output as an excel file
+    writer = pd.ExcelWriter(
+        "20 bp Randomly generated fully matched targets.Xlsx", engine="xlsxwriter"
+    )
+    guide_collection.to_excel(writer, sheet_name="random generations")
+    writer.save()
+
+
 # Fully-matched target
 # Guide sequence length
 
@@ -437,13 +501,26 @@ if __name__ == "__main__":
 # debugging area #############################################
 
 # PAM({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
-mt = Mutation()
+
+
 # print(mt.all_mutation({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"}))
 # print(mt.transition({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"}))
 # print(mt.transversion({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"}, 2))
 # print(mt.transversion({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"}, 3))
 # print(mt.transversion({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"}, 4))
-mt.mt_1({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
-mt.mt_2({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
-mt.mt_3({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
-mt.mt_4({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
+# mt.mt_1({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
+# mt.mt_2({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
+# mt.mt_3({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
+# mt.mt_4({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
+# guide_random_generator(10)
+
+src = "input_template.xlsx"
+
+# hard-coded operations
+mt = Mutation()
+PAM(input_processor(src))
+mt.mt_1(input_processor(src))
+mt.mt_2(input_processor(src))
+mt.mt_3(input_processor(src))
+mt.mt_4(input_processor(src))
+guide_random_generator(NUMBER_OF_FULLY_MATCHED_TARGET)

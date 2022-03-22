@@ -129,6 +129,10 @@ dmypy.json
 .pyre/
 
 # excel document
-.xlsx
-.csv
+*.xlsx
+*.csv
 PAM Library.xlsx
+Mismatched target (1bp).xlsx
+Mismatched target (2bp).xlsx
+Mismatched target (3bp).xlsx
+Mismatched target (4bp).xlsx
