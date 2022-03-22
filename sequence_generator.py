@@ -1,31 +1,51 @@
 # 32 bp < input is needed
-
-import re
-import pandas as pd
-import numpy as np
-import xlsxwriter
+import itertools
 import random
-import openpyxl
+import re
 
+import pandas as pd
+
+# pre-defined values
 SEQUENCE_LENGTH_FOR_VALIDATION = 32
 RANDOM_SAMPLING_CONSTANT = 60
-GUIDE_LENGTH = 20
+parameter = 20
 NUMBER_OF_FULLY_MATCHED_TARGET = 60
+PAM_FOR_RANDOM_GENERTION = ["TTTA", "TTTG"]
 nt = ["A", "T", "G", "C"]
 NT = 4
+
+
+class guide_parameter():
+
+    # user input for setting the guide parameters
+    def __init__(self):
+        print("Write proper information on your dataset")
+        self.len_leading_seq = int(input("leading sequence length: "))
+        self.len_pam = int(input("PAM length: "))
+        self.len_guide_seq = int(input("guide sequence length: "))
+        self.len_trailing_seq = int(input("trailing sequence length: "))
+        self.number_of_maximum_mismatches = int(input("maximum number of mismatches appeared in the sequence: "))
+
+        # debug
+        # self.len_leading_seq = 150
+        # self.len_pam = 4
+        # self.len_guide_seq = 20
+        # self.len_trailing_seq = 126
+        # self.number_of_maximum_mismatches = 4
+
 
 # input validation
 def seq_validator(data):
     if data[0] == "#":
         return None
-    m = re.findall(r"^[A|a|T|t|C|c|G|g]+$", data)
+    m = re.findall(r"^[AaTtCcGg]+$", data)
     return m[0] if m else None
 
 
 # input pre-processing
 def input_processor(file):
     """_summary_
-    dictionary element of {gene name : 32 bp sequence (context + PAM + protospacer)
+    Read excel file, and transfer it to Pandas DataFrame
 
     template
 
@@ -35,22 +55,25 @@ def input_processor(file):
     Returns:
         _type_: _description_
     """
-    df = pd.read_excel(file, engine="openpyxl", index_col=0)
-    seq_collection = df.set_index(["#Gene Name"])[
-        "#Sequence with context (4 + 4 + 20 + 4)"
-    ].to_dict()
-    df = None
+    df = pd.read_excel(file, engine="openpyxl")
+    df.astype({"#Indel frequency": "int32"})
 
-    # dictionary pre-processing
-    keys_to_deleted = []
-    for item in seq_collection:
-        if seq_validator(seq_collection[item]) is None:
-            keys_to_deleted.append(item)
+    # TODO: how to determine whether the input is valid or not
+    # input sequence length validation
 
-    for key in keys_to_deleted:
-        seq_collection.pop(key)
+    return df
 
-    return seq_collection
+
+def sequence_partitioner(row, parameter: guide_parameter):
+    leading_sequence = row["#Sequence with context (150 + 4 + 20 + 126)"][:parameter.len_leading_seq]
+    original_pam = row["#Sequence with context (150 + 4 + 20 + 126)"][
+                   parameter.len_leading_seq:parameter.len_leading_seq + parameter.len_pam]
+    protospacer = row["#Sequence with context (150 + 4 + 20 + 126)"][
+                  parameter.len_leading_seq + parameter.len_pam:parameter.len_leading_seq + parameter.len_pam + parameter.len_guide_seq]
+    trailing_sequence = row["#Sequence with context (150 + 4 + 20 + 126)"][
+                        parameter.len_leading_seq + parameter.len_pam + parameter.len_guide_seq:]
+
+    return leading_sequence, original_pam, protospacer, trailing_sequence
 
 
 class Mutation:
@@ -65,11 +88,12 @@ class Mutation:
     TRANSVERSION = {"A": ["c", "t"], "G": ["c", "t"], "C": ["a", "g"], "T": ["a", "g"]}
     TRANSVERSION_SIM_GUIDE = {"A": "t", "G": "c", "C": "g", "T": "a"}
 
-    def all_mutation(self, seed):
+    def all_mutation(self, df_input_sequence, parameter):
         """_summary_
 
         Args:
-            seed (_type_): _description_
+            parameter:
+            df_input_sequence (_type_): _description_
 
         Returns:
             single mutation only
@@ -77,41 +101,43 @@ class Mutation:
         df = pd.DataFrame(
             columns=[
                 "Original sequence",
-                "mutant sequence",
+                "mutant guide sequence",
+                "Generated sequence with gDNA context",
                 "gene name",
+                "Known indel frequency from the source",
+                "mutation information",
                 "mutation type",
             ]
         )
-
-        for gene_name in seed:
+        skipped = int()
+        for index, row in df_input_sequence.iterrows():
             try:
-
-                # TODO: move to input processor
-                # input sequence length qualification
-                if len(seed[gene_name]) < SEQUENCE_LENGTH_FOR_VALIDATION:
-                    print("Sequence information is invalid. The operation is aborted.")
-                    return -1
-
+                if pd.isna(row["#Sequence with context (150 + 4 + 20 + 126)"]):
+                    skipped += 1
+                    continue
                 # input seed pre-processing (partitioning)
-                lead_4bp = seed[gene_name][:4]
-                original_pam = seed[gene_name][4:8]
-                protospacer = seed[gene_name][8:28]
-                trailing_4bp = seed[gene_name][28:]
+                leading_sequence, original_pam, protospacer, trailing_sequence = sequence_partitioner(row, parameter)
 
                 # making a 1-bp mismatch collection for a single guide sequence
                 mt_protospacer_collection = list()
+                mt_info_collection = list()
                 for i in range(len(protospacer)):
                     for occurrence in self.ALL_MUTATION[protospacer[i]]:
                         mt_protospacer_collection.append(
-                            f"{protospacer[:i]}{occurrence}{protospacer[i+1:]}"
+                            f"{protospacer[:i]}{occurrence}{protospacer[i + 1:]}"
                         )
+                        # (loc, a -> b)
+                        mt_info_collection.append((i, f"{protospacer[i]} -> {occurrence}"))
 
-                for entry in mt_protospacer_collection:
+                for entry, supple_info in zip(mt_protospacer_collection, mt_info_collection):
                     df = df.append(
                         {
-                            "Original sequence": f"{seed[gene_name]}",
-                            "mutant sequence": f"{lead_4bp}{original_pam}{entry}{trailing_4bp}",
-                            "gene name": f"{gene_name}",
+                            "Original sequence": f"{row['#Sequence with context (150 + 4 + 20 + 126)']}",
+                            "mutant guide sequence": f"{entry}",
+                            "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
+                            "mutation information": f"location on the guide: {supple_info[0]}, {supple_info[1]}",
+                            "gene name": f"{row['#Gene Name']}",
+                            "Known indel frequency from the source": f"{row['#Indel frequency']}",
                             "mutation type": "ALL_POINT_MUTATION",
                         },
                         ignore_index=True,
@@ -121,8 +147,153 @@ class Mutation:
                 print("PAM library generation aborted")
                 raise
 
+        print(f"{skipped} occurrences has been skipped")
         return df
 
+    def transversion(self, df_input_sequence, parameter: guide_parameter, num_mismatches=2):
+        """_summary_
+
+        Args:
+            num_mismatches:
+            df_input_sequence (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        skipped = int()
+
+        df = pd.DataFrame(
+            columns=[
+                "Original sequence",
+                "mutant guide sequence",
+                "Generated sequence with gDNA context",
+                "mutation information",
+                "gene name",
+                "mutation type",
+                "Known indel frequency from the source",
+            ]
+        )
+        for index, row in df_input_sequence.iterrows():
+            try:
+                if pd.isna(row["#Sequence with context (150 + 4 + 20 + 126)"]):
+                    skipped += 1
+                    continue
+
+                # input seed pre-processing (partitioning)
+                leading_sequence, original_pam, protospacer, trailing_sequence = sequence_partitioner(row, parameter)
+
+                # generate all possible combination of n-bp mismatches
+                mt_protospacer_collection = list()
+                mt_info_collection = list()
+
+                tokens = list()
+                # generating serial mutants first, when multiple mutations needed
+                for pos in range(parameter.len_guide_seq - num_mismatches + 1):
+                    # generating indices
+                    indices = [pos + i for i in range(num_mismatches)]
+
+                    temp_mut_info_list = list()
+
+                    # stringify list elements
+                    mutant_string = str()
+                    mt_info_string = str()
+
+                    temp_list = list(protospacer)
+                    for idx in indices:
+                        temp_list[idx] = self.TRANSVERSION_SIM_GUIDE[protospacer[idx]]
+                        # (loc, a -> b)
+                        temp_mut_info_list.append((
+                            f"{idx}",
+                            f"{protospacer[idx]} -> {self.TRANSVERSION_SIM_GUIDE[protospacer[idx]]}"))
+
+                    mutant_string = "".join(temp_list)
+                    # (loc, a -> b)
+                    for entry in temp_mut_info_list:
+                        mt_info_string += f"{entry[0]}, {entry[1]}\n"
+
+                    # freeing memory
+                    temp_mut_info_list = None
+
+                    # store processed string in a list
+                    mt_protospacer_collection.append(mutant_string)
+                    mt_info_collection.append(mt_info_string)
+
+                # generating random mutants
+                while len(mt_protospacer_collection) < RANDOM_SAMPLING_CONSTANT * (
+                        2 * num_mismatches - 1
+                ):
+                    # making a 1-bp mismatch collection for a single guide sequence, default case?
+                    if parameter.number_of_maximum_mismatches == 1:
+                        for i in range(len(protospacer)):
+                            for occurrence in self.TRANSVERSION_SIM_GUIDE[
+                                protospacer[i]
+                            ]:
+                                mt_protospacer_collection.append(
+                                    f"{protospacer[:i]}{occurrence}{protospacer[i + 1:]}"
+                                )
+                        break
+                    else:
+                        # randomly generated mutation locations
+                        indices = random.sample(range(0, parameter.len_guide_seq),
+                                                num_mismatches)
+                        # serial assignment
+                        indices.sort()
+
+                        temp_mut_info_list = list()
+
+                        # stringify list elements
+                        mutant_string = str()
+                        mt_info_string = str()
+
+                        temp_list = list(protospacer)
+                        for idx in indices:
+                            temp_list[idx] = self.TRANSVERSION_SIM_GUIDE[protospacer[idx]]
+                            # (loc, a -> b)
+                            temp_mut_info_list.append((
+                                f"{idx}",
+                                f"{protospacer[idx]} -> {self.TRANSVERSION_SIM_GUIDE[protospacer[idx]]}"))
+
+                        mutant_string = "".join(temp_list)
+                        # (loc, a -> b)
+                        for entry in temp_mut_info_list:
+                            mt_info_string += f"{entry[0]}, {entry[1]}\n"
+
+                        # freeing memory
+                        temp_mut_info_list = None
+
+                        # store processed string in a list only if it is unique
+                        if mutant_string not in mt_protospacer_collection:
+                            mt_protospacer_collection.append(mutant_string)
+                            mt_info_collection.append(mt_info_string)
+
+                    # display current generation status
+                    print(
+                        f"{len(mt_protospacer_collection)}-th unique mutation has been generated."
+                    )
+
+                # save to Pandas dataframe
+                for entry, supp_info in zip(mt_protospacer_collection, mt_info_collection):
+                    df = df.append(
+                        {
+                            "Original sequence": f"{row['#Sequence with context (150 + 4 + 20 + 126)']}",
+                            "mutant guide sequence": entry,
+                            "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
+                            "mutation information": supp_info,
+                            "gene name": f"{row['#Gene Name']}",
+                            "mutation type": "TRANSVERSION",
+                            "Known indel frequency from the source": f"{row['#Indel frequency']}",
+
+                        },
+                        ignore_index=True,
+                    )
+            except Exception as e:
+                print(e)
+                print("PAM library generation aborted")
+                raise
+        print(f"{skipped} ocurrences has been skipped")
+        return df
+
+    '''
     def transition(self, seed, n=0):
         # # = n mutation functionality not implemented yet
         """_summary_
@@ -140,7 +311,7 @@ class Mutation:
         df = pd.DataFrame(
             columns=[
                 "Original sequence",
-                "mutant sequence",
+                "mutant guide sequence",
                 "gene name",
                 "mutation type",
             ]
@@ -166,14 +337,14 @@ class Mutation:
                 for i in range(len(protospacer)):
                     for occurrence in self.TRANSITION[protospacer[i]]:
                         mt_protospacer_collection.append(
-                            f"{protospacer[:i]}{occurrence}{protospacer[i+1:]}"
+                            f"{protospacer[:i]}{occurrence}{protospacer[i + 1:]}"
                         )
 
                 for entry in mt_protospacer_collection:
                     df = df.append(
                         {
                             "Original sequence": f"{seed[gene_name]}",
-                            "mutant sequence": f"{lead_4bp}{original_pam}{entry}{trailing_4bp}",
+                            "mutant guide sequence": f"{lead_4bp}{original_pam}{entry}{trailing_4bp}",
                             "gene name": f"{gene_name}",
                             "mutation type": "TRANSITION",
                         },
@@ -185,242 +356,106 @@ class Mutation:
                 raise
 
         return df
-
-    def transversion(self, seed, n=0):
-        """_summary_
-
-        Args:
-            seed (_type_): _description_
-
-        Returns:
-            _type_: _description_
-        """
-
-        if n == 0:
-            print("invalid input. Operation aborted")
-            return -1
-        df = pd.DataFrame(
-            columns=[
-                "Original sequence",
-                "mutant sequence",
-                "gene name",
-                "mutation type",
-            ]
-        )
-
-        for gene_name in seed:
-            try:
-
-                # TODO: move to input processor
-                # input sequence length qualification
-                if len(seed[gene_name]) < SEQUENCE_LENGTH_FOR_VALIDATION:
-                    print("Sequence information is invalid. The operation is aborted.")
-                    return -1
-
-                # input seed pre-processing (partitioning)
-                lead_4bp = seed[gene_name][:4]
-                original_pam = seed[gene_name][4:8]
-                protospacer = seed[gene_name][8:28]
-                trailing_4bp = seed[gene_name][28:]
-
-                # generate all possible combination of n-bp mismatches
-                mt_protospacer_collection = list()
-
-                # generating serial mutants first, when multiple mutations needed
-                if n > 1:
-                    for pos in range(GUIDE_LENGTH - (n - 1)):
-                        if n == 2:
-                            i, j = pos, pos + 1
-                            temp_mt = f"{protospacer[:i]}{self.TRANSVERSION_SIM_GUIDE[protospacer[i]]}{protospacer[i+1:j]}{self.TRANSVERSION_SIM_GUIDE[protospacer[j]]}{protospacer[j+1:]}"
-                            mt_protospacer_collection.append(temp_mt)
-
-                        elif n == 3:
-                            i, j, k = pos, pos + 1, pos + 2
-                            temp_mt = f"{protospacer[:i]}{self.TRANSVERSION_SIM_GUIDE[protospacer[i]]}{protospacer[i+1:j]}{self.TRANSVERSION_SIM_GUIDE[protospacer[j]]}{protospacer[j+1:k]}{self.TRANSVERSION_SIM_GUIDE[protospacer[k]]}{protospacer[k+1:]}"
-                            mt_protospacer_collection.append(temp_mt)
-                        elif n == 4:
-                            i, j, k, l = pos, pos + 1, pos + 2, pos + 3
-                            temp_mt = f"{protospacer[:i]}{self.TRANSVERSION_SIM_GUIDE[protospacer[i]]}{protospacer[i+1:j]}{self.TRANSVERSION_SIM_GUIDE[protospacer[j]]}{protospacer[j+1:k]}{self.TRANSVERSION_SIM_GUIDE[protospacer[k]]}{protospacer[k+1:l]}{self.TRANSVERSION_SIM_GUIDE[protospacer[l]]}{protospacer[l:]}"
-                            mt_protospacer_collection.append(temp_mt)
-
-                # generating random mutants
-                while len(mt_protospacer_collection) < RANDOM_SAMPLING_CONSTANT * (
-                    2 * n - 1
-                ):
-
-                    # making a 1-bp mismatch collection for a single guide sequence
-                    if n == 1:
-                        for i in range(len(protospacer)):
-                            for occurrence in self.TRANSVERSION_SIM_GUIDE[
-                                protospacer[i]
-                            ]:
-                                mt_protospacer_collection.append(
-                                    f"{protospacer[:i]}{occurrence}{protospacer[i+1:]}"
-                                )
-                        break
-                    elif n == 2:
-                        indices = random.sample(range(0, GUIDE_LENGTH), n)
-                        # serial assignment
-                        indices.sort()
-                        i, j = indices
-                        temp_mt = f"{protospacer[:i]}{self.TRANSVERSION_SIM_GUIDE[protospacer[i]]}{protospacer[i+1:j]}{self.TRANSVERSION_SIM_GUIDE[protospacer[j]]}{protospacer[j+1:]}"
-                        if temp_mt not in mt_protospacer_collection:
-                            mt_protospacer_collection.append(temp_mt)
-
-                    elif n == 3:
-                        indices = random.sample(range(0, GUIDE_LENGTH), n)
-                        # serial assignment
-                        indices.sort()
-                        i, j, k = indices
-                        temp_mt = f"{protospacer[:i]}{self.TRANSVERSION_SIM_GUIDE[protospacer[i]]}{protospacer[i+1:j]}{self.TRANSVERSION_SIM_GUIDE[protospacer[j]]}{protospacer[j+1:k]}{self.TRANSVERSION_SIM_GUIDE[protospacer[k]]}{protospacer[k+1:]}"
-                        if temp_mt not in mt_protospacer_collection:
-                            mt_protospacer_collection.append(temp_mt)
-                    elif n == 4:
-                        indices = random.sample(range(0, GUIDE_LENGTH), n)
-                        # serial assignment
-                        indices.sort()
-                        i, j, k, l = indices
-                        temp_mt = f"{protospacer[:i]}{self.TRANSVERSION_SIM_GUIDE[protospacer[i]]}{protospacer[i+1:j]}{self.TRANSVERSION_SIM_GUIDE[protospacer[j]]}{protospacer[j+1:k]}{self.TRANSVERSION_SIM_GUIDE[protospacer[k]]}{protospacer[k+1:l]}{self.TRANSVERSION_SIM_GUIDE[protospacer[l]]}{protospacer[l:]}"
-                        if temp_mt not in mt_protospacer_collection:
-                            mt_protospacer_collection.append(temp_mt)
-                    # display current generation status
-                    print(
-                        f"{len(mt_protospacer_collection)}-th unique mutation has been generated."
-                    )
-
-                # save to Pandas dataframe
-                for entry in mt_protospacer_collection:
-                    df = df.append(
-                        {
-                            "Original sequence": f"{seed[gene_name]}",
-                            "mutant sequence": f"{lead_4bp}{original_pam}{entry}{trailing_4bp}",
-                            "gene name": f"{gene_name}",
-                            "mutation type": "TRANSVERSION",
-                        },
-                        ignore_index=True,
-                    )
-            except Exception as e:
-                print(e)
-                print("PAM library generation aborted")
-                raise
-
-        return df
+    '''
 
     # Mismatched target (1bp)
-    def mt_1(self, seed):
+    def mt(self, df_input_sequence, parameter: guide_parameter):
         """mismatched for a single position ("mt" refers to the term, mutant or mismatch)
-
+            for multiple mismatches, the program only considers transversion mutations
         Args:
-            seed (dict): gene name : guide sequences (4+4+20+4 bp, 5' to 3')
+            parameter:
+
         """
-        df = self.all_mutation(seed)
-        # Output as an excel file
-        writer = pd.ExcelWriter("Mismatched target (1bp).xlsx", engine="xlsxwriter")
-        df.to_excel(writer, sheet_name="1 bp MM")
-        writer.save()
+        if parameter.number_of_maximum_mismatches == 1:
+            df = self.all_mutation(df_input_sequence, parameter)
+            # Output as an excel file
+            writer = pd.ExcelWriter(f"Mismatched target ({parameter.number_of_maximum_mismatches} bp).xlsx",
+                                    engine="xlsxwriter")
+            df.to_excel(writer, sheet_name=f"{parameter.number_of_maximum_mismatches} bp MM")
+            writer.save()
+        else:
+            # debug
+            # df = self.transversion(df_input_sequence, parameter, 4)
 
-    # Mismatched target (2bp)
-    def mt_2(self, seed):
-        """_summary_
-            transversion
-        Args:
-            seed (_type_): _description_
-        """
-
-        df = self.transversion(seed, 2)
-        # Output as an excel file
-        writer = pd.ExcelWriter("Mismatched target (2bp).xlsx", engine="xlsxwriter")
-        df.to_excel(writer, sheet_name="2 bp MM")
-        writer.save()
-
-    # Mismatched target (3bp)
-    def mt_3(self, seed):
-        """_summary_
-            transversion
-        Args:
-            seed (_type_): _description_
-        """
-
-        df = self.transversion(seed, 3)
-        # Output as an excel file
-        writer = pd.ExcelWriter("Mismatched target (3bp).xlsx", engine="xlsxwriter")
-        df.to_excel(writer, sheet_name="3 bp MM")
-        writer.save()
-
-    # Mismatched target (4bp)
-    def mt_4(self, seed):
-        """_summary_
-            transversion
-        Args:
-            seed (_type_): _description_
-        """
-
-        df = self.transversion(seed, 4)
-        # Output as an excel file
-        writer = pd.ExcelWriter("Mismatched target (4bp).xlsx", engine="xlsxwriter")
-        df.to_excel(writer, sheet_name="4 bp MM")
-        writer.save()
+            # 1 mismatches
+            df = self.all_mutation(df_input_sequence, parameter)
+            writer = pd.ExcelWriter(f"Mismatched target (1 bp).xlsx",
+                                    engine="xlsxwriter")
+            df.to_excel(writer, sheet_name=f"1 bp MM")
+            writer.save()
+            # ~ n mismatches
+            for i in range(2, parameter.number_of_maximum_mismatches + 1):  # [2,num]
+                df = self.transversion(df_input_sequence, parameter, i)
+                # Output as an excel file
+                writer = pd.ExcelWriter(f"Mismatched target ({i} bp).xlsx",
+                                        engine="xlsxwriter")
+                df.to_excel(writer, sheet_name=f"{i} bp MM")
+                writer.save()
 
 
 # PAM variants
-def PAM(seed, length=4):
-    """Generate all possible oligonucleotide sequence with all PAM sequence for Cas12f1 (NNNN)
+def PAM(df_input_sequence, parameter: guide_parameter):
+    """Generate all possible oligonucleotide sequence with all PAM sequence for length "n" PAM sequence
 
     making excel spreadsheet
 
     Input sequence length (format) should be considered carefully.
-    4 bp(trailing) + 4 bp (PAM) + 20 bp (guide) + 4 bp (trailing) + a (+alpha) will be rendered.
+
 
     Args:
-        seed (dict): gene name : guide sequences (4+4+20+4 bp, 5' to 3')
-        length (int, optional): _description_. Defaults to 4.
+        parameter:
 
 
+    parameter.
     """
-    if not isinstance(seed, dict):
-        seed = dict(seed)
+    # Generating all possible PAM sequence
+    # First, getting cartesian product of N (PAM length) lists
+    pam_string_collection = list()
+    pam_obj = [nt for i in range(parameter.len_pam)]
+    for combination in itertools.product(*pam_obj):
+        string_temp = str()
+        for char in combination:
+            string_temp += char
+        pam_string_collection.append(string_temp)
 
-    pam256 = list()
-    # generate all possible PAM combinations
-    # O(n^4) : not suitable for long PAM sequence
-    for i in range(NT):
-        for j in range(NT):
-            for k in range(NT):
-                for l in range(NT):
-                    pam256.append(f"{nt[i]}{nt[j]}{nt[k]}{nt[l]}")
-
+    # dataframe for PAM data handling
     df_PAM = pd.DataFrame(
         columns=[
             "PAM",
-            "Gene Name",
             "Seed guide sequence",
             "PAM + guide",
-            "32 bp synthetic target and target context sequence (4 bp + PAM + 20 bp protospacer + 4 bp)",
+            "Generated sequence with gDNA context",
+            "Gene Name",
+            "Known indel frequency from the source"
         ]
     )
-    for p in pam256:
-        for gene_name in seed:
-            try:
+    df_PAM.astype({"Known indel frequency from the source": "int32"})
+    skipped = int()
 
+    for index, row in df_input_sequence.iterrows():
+        for p in pam_string_collection:
+            try:
                 # TODO: move to input processor
                 # input sequence length qualification
-                if len(seed[gene_name]) < SEQUENCE_LENGTH_FOR_VALIDATION:
-                    print("Sequence information is invalid. The operation is aborted.")
-                    return -1
+                # if len(seed[gene_name]) < SEQUENCE_LENGTH_FOR_VALIDATION:
+                #     print("Sequence information is invalid. The operation is aborted.")
+                #     return -1
 
                 # input seed pre-processing
-                lead_4bp = seed[gene_name][:4]
-                original_pam = seed[gene_name][4:8]
-                protospacer = seed[gene_name][8:28]
-                trailing_4bp = seed[gene_name][28:]
+                # skip the row with blank cell(s)
+                if pd.isna(row["#Sequence with context (150 + 4 + 20 + 126)"]):
+                    skipped += 1
+                    continue
+                leading_sequence, original_pam, protospacer, trailing_sequence = sequence_partitioner(row, parameter)
 
                 df_PAM = df_PAM.append(
                     {
                         "PAM": f"{p}",
-                        "Gene Name": f"{gene_name}",
                         "Seed guide sequence": f"{protospacer}",
                         "PAM + guide": f"{p}{protospacer}",
-                        "32 bp synthetic target and target context sequence (4 bp + PAM + 20 bp protospacer + 4 bp)": f"{lead_4bp}{p}{protospacer}{trailing_4bp}",
+                        "Generated sequence with gDNA context": f"{leading_sequence}{p}{protospacer}{trailing_sequence}",
+                        "Gene Name": f"{row['#Gene Name']}",
+                        "Known indel frequency from the source": f"{row['#Indel frequency']}"
                     },
                     ignore_index=True,
                 )
@@ -429,44 +464,50 @@ def PAM(seed, length=4):
                 print("PAM library generation aborted")
                 raise
 
+    print(f"{skipped} occurrences are skipped")
     # Output as an excel file
     writer = pd.ExcelWriter("PAM Library.xlsx", engine="xlsxwriter")
-    df_PAM.to_excel(writer, sheet_name="PAM Library")
+    df_PAM.to_excel(writer, sheet_name=f"{len(df_input_sequence.index)} guides processed")
     writer.save()
 
 
-def guide_random_generator(iter):
-    """_summary_"""
+def guide_random_generator(n, parameter):
+    """_summary_
+
+    Args:
+        parameter:
+    """
     guide_collection = pd.DataFrame(
         columns=[
-            "20 bp Randomly generated fully matched targets",
+            "20 bp Randomly generated sequences",
         ]
     )
 
     # Randomly generating unique guide sequences
-    for i in range(int(iter)):
-        string_temp = "TTTR"
+    for i in range(int(n)):
+        for p in PAM_FOR_RANDOM_GENERTION:
+            string_temp = p
 
-        for j in range(GUIDE_LENGTH - 4):
-            string_temp += nt[random.sample(range(0, len(nt)), 1)[0]]
+            for j in range(parameter.len_guide_seq - 4):
+                string_temp += nt[random.sample(range(0, len(nt)), 1)[0]]
 
-        # TODO: is there any better way
-        # no duplicates
-        if (
-            guide_collection["20 bp Randomly generated fully matched targets"]
-            .str.contains(string_temp)
-            .any()
-        ):
-            continue
-        guide_collection = guide_collection.append(
-            {"20 bp Randomly generated fully matched targets": f"{string_temp}"},
-            ignore_index=True,
-        )
-        print(f"{i}-th random sequence has been generated.")
+            # TODO: is there any better way
+            # no duplicates
+            if (
+                    guide_collection["20 bp Randomly generated sequences"]
+                            .str.contains(string_temp)
+                            .any()
+            ):
+                continue
+            guide_collection = guide_collection.append(
+                {"20 bp Randomly generated sequences": f"{string_temp}"},
+                ignore_index=True,
+            )
+            print(f"{i}-th random sequence has been generated.")
 
     # Output as an excel file
     writer = pd.ExcelWriter(
-        "20 bp Randomly generated fully matched targets.Xlsx", engine="xlsxwriter"
+        "20 bp Randomly generated sequences.xlsx", engine="xlsxwriter"
     )
     guide_collection.to_excel(writer, sheet_name="random generations")
     writer.save()
@@ -514,13 +555,12 @@ if __name__ == "__main__":
 # mt.mt_4({"LIN7B": "TCTATTTAACTGCCTAGTCGAACTCAATATCTCC"})
 # guide_random_generator(10)
 
-src = "input_template.xlsx"
+# Setting the parameter
+param = guide_parameter()
 
+src = "input_template.xlsx"
 # hard-coded operations
 mt = Mutation()
-PAM(input_processor(src))
-mt.mt_1(input_processor(src))
-mt.mt_2(input_processor(src))
-mt.mt_3(input_processor(src))
-mt.mt_4(input_processor(src))
-guide_random_generator(NUMBER_OF_FULLY_MATCHED_TARGET)
+PAM(input_processor(src), param)
+mt.mt(input_processor(src), param)
+guide_random_generator(NUMBER_OF_FULLY_MATCHED_TARGET, param)
