@@ -66,7 +66,7 @@ def input_processor(file):
         _type_: _description_
     """
     df = pd.read_excel(file, engine="openpyxl")
-    df.astype({"#Indel frequency": "int32"})
+    df.astype({"#Indel Frequency": "float64"})
 
     # TODO: how to determine whether the input is valid or not
     # input sequence length validation
@@ -76,16 +76,16 @@ def input_processor(file):
 
 def sequence_partitioner(row, parameter: guideParameter):
     leading_sequence = row[
-                           f"#Sequence with context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
+                           f"#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
                        :parameter.len_leading_seq]
     original_pam = row[
-                       f"#Sequence with context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
+                       f"#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
                    parameter.len_leading_seq:parameter.len_leading_seq + parameter.len_pam]
     protospacer = row[
-                      f"#Sequence with context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
+                      f"#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
                   parameter.len_leading_seq + parameter.len_pam:parameter.len_leading_seq + parameter.len_pam + parameter.len_guide_seq]
     trailing_sequence = row[
-                            f"#Sequence with context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
+                            f"#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"][
                         parameter.len_leading_seq + parameter.len_pam + parameter.len_guide_seq:]
 
     return leading_sequence, original_pam, protospacer, trailing_sequence
@@ -127,7 +127,7 @@ class Mutation:
         skipped = int()
         for index, row in df_input_sequence.iterrows():
             try:
-                if pd.isna(row["#Sequence with context (150 + 4 + 20 + 126)"]):
+                if pd.isna(row["#Sequence with Context (150 + 4 + 20 + 126)"]):
                     skipped += 1
                     continue
                 # input seed pre-processing (partitioning)
@@ -147,12 +147,12 @@ class Mutation:
                 for entry, supple_info in zip(mt_protospacer_collection, mt_info_collection):
                     df = df.append(
                         {
-                            "Original sequence": f"{row['#Sequence with context (150 + 4 + 20 + 126)']}",
+                            "Original sequence": f"{row['#Sequence with Context (150 + 4 + 20 + 126)']}",
                             "mutant guide sequence": f"{entry}",
                             "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
                             "mutation information": f"location on the guide: {supple_info[0]}, {supple_info[1]}",
                             "gene name": f"{row['#Gene Name']}",
-                            "Known indel frequency from the source": f"{row['#Indel frequency']}",
+                            "Known indel frequency from the source": f"{row['#Indel Frequency']}",
                             "mutation type": "ALL_POINT_MUTATION",
                         },
                         ignore_index=True,
@@ -190,7 +190,7 @@ class Mutation:
         )
         for index, row in df_input_sequence.iterrows():
             try:
-                if pd.isna(row["#Sequence with context (150 + 4 + 20 + 126)"]):
+                if pd.isna(row["#Sequence with Context (150 + 4 + 20 + 126)"]):
                     skipped += 1
                     continue
 
@@ -239,13 +239,13 @@ class Mutation:
                 for entry, supp_info in zip(mt_protospacer_collection, mt_info_collection):
                     df = df.append(
                         {
-                            "Original sequence": f"{row['#Sequence with context (150 + 4 + 20 + 126)']}",
+                            "Original sequence": f"{row['#Sequence with Context (150 + 4 + 20 + 126)']}",
                             "mutant guide sequence": entry,
                             "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
                             "mutation information": supp_info,
                             "gene name": f"{row['#Gene Name']}",
                             "mutation type": "TRANSVERSION",
-                            "Known indel frequency from the source": f"{row['#Indel frequency']}",
+                            "Known indel frequency from the source": f"{row['#Indel Frequency']}",
 
                         },
                         ignore_index=True,
@@ -312,13 +312,13 @@ class Mutation:
                 for entry, supp_info in zip(mt_protospacer_collection, mt_info_collection):
                     df = df.append(
                         {
-                            "Original sequence": f"{row['#Sequence with context (150 + 4 + 20 + 126)']}",
+                            "Original sequence": f"{row['#Sequence with Context (150 + 4 + 20 + 126)']}",
                             "mutant guide sequence": entry,
                             "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
                             "mutation information": supp_info,
                             "gene name": f"{row['#Gene Name']}",
                             "mutation type": "ALL_POINT_MUTATION",
-                            "Known indel frequency from the source": f"{row['#Indel frequency']}",
+                            "Known indel frequency from the source": f"{row['#Indel Frequency']}",
 
                         },
                         ignore_index=True,
@@ -480,7 +480,7 @@ def PAM(df_input_sequence, parameter: guideParameter):
 
                 # input seed pre-processing
                 # skip the row with blank cell(s)
-                if pd.isna(row["#Sequence with context (150 + 4 + 20 + 126)"]):
+                if pd.isna(row["#Sequence with Context (150 + 4 + 20 + 126)"]):
                     skipped += 1
                     continue
                 leading_sequence, original_pam, protospacer, trailing_sequence = sequence_partitioner(row, parameter)
@@ -492,7 +492,7 @@ def PAM(df_input_sequence, parameter: guideParameter):
                         "PAM + guide": f"{p}{protospacer}",
                         "Generated sequence with gDNA context": f"{leading_sequence}{p}{protospacer}{trailing_sequence}",
                         "Gene Name": f"{row['#Gene Name']}",
-                        "Known indel frequency from the source": f"{row['#Indel frequency']}"
+                        "Known indel frequency from the source": f"{row['#Indel Frequency']}"
                     },
                     ignore_index=True,
                 )
