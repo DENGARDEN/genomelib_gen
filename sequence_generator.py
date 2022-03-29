@@ -150,7 +150,7 @@ class Mutation:
                 for entry, supple_info in zip(mt_protospacer_collection, mt_info_collection):
                     df = df.append(
                         {
-                            "Original sequence": f"{row['#Sequence with Context (150 + 4 + 20 + 126)']}",
+                            "Original sequence": f"{row[f'#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})']}",
                             "mutant guide sequence": f"{entry}",
                             "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
                             "mutation information": f"location on the guide: {supple_info[0]}, {supple_info[1]}",
@@ -243,7 +243,7 @@ class Mutation:
                 for entry, supp_info in zip(mt_protospacer_collection, mt_info_collection):
                     df = df.append(
                         {
-                            "Original sequence": f"{row['#Sequence with Context (150 + 4 + 20 + 126)']}",
+                            "Original sequence": f"{row[f'#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})']}",
                             "mutant guide sequence": entry,
                             "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
                             "mutation information": supp_info,
@@ -316,7 +316,7 @@ class Mutation:
                 for entry, supp_info in zip(mt_protospacer_collection, mt_info_collection):
                     df = df.append(
                         {
-                            "Original sequence": f"{row['#Sequence with Context (150 + 4 + 20 + 126)']}",
+                            "Original sequence": f"{row[f'#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})']}",
                             "mutant guide sequence": entry,
                             "Generated sequence with gDNA context": f"{leading_sequence}{original_pam}{entry}{trailing_sequence}",
                             "mutation information": supp_info,
