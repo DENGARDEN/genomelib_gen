@@ -13,6 +13,7 @@ NUMBER_OF_FULLY_MATCHED_TARGET = 60
 PAM_FOR_RANDOM_GENERTION = ["TTTA", "TTTG"]
 nt = ["A", "T", "G", "C"]
 NT = 4
+MAXIMUM_NUMBER_OF_MISMATCHES = 4
 
 
 class guideParameter():
@@ -28,12 +29,13 @@ class guideParameter():
         self.len_pam = int(implicit_sequence_info[1])
         self.len_guide_seq = int(implicit_sequence_info[2])
         self.len_trailing_seq = int(implicit_sequence_info[3])
-
+        self.number_of_maximum_mismatches = MAXIMUM_NUMBER_OF_MISMATCHES
         # self.len_leading_seq = int(input("leading sequence length: "))
         #         self.len_pam = int(input("PAM length: "))
         #         self.len_guide_seq = int(input("guide sequence length: "))
         #         self.len_trailing_seq = int(input("trailing sequence length: "))
-        self.number_of_maximum_mismatches = int(input("maximum number of mismatches appeared in the sequence: "))
+
+        # self.number_of_maximum_mismatches = int(input("maximum number of mismatches appeared in the sequence: "))
 
         df = None
         # debug
@@ -127,7 +129,8 @@ class Mutation:
         skipped = int()
         for index, row in df_input_sequence.iterrows():
             try:
-                if pd.isna(row["#Sequence with Context (150 + 4 + 20 + 126)"]):
+                if pd.isna(row[
+                               f"#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"]):
                     skipped += 1
                     continue
                 # input seed pre-processing (partitioning)
@@ -190,7 +193,8 @@ class Mutation:
         )
         for index, row in df_input_sequence.iterrows():
             try:
-                if pd.isna(row["#Sequence with Context (150 + 4 + 20 + 126)"]):
+                if pd.isna(row[
+                               f"#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"]):
                     skipped += 1
                     continue
 
@@ -466,21 +470,17 @@ def PAM(df_input_sequence, parameter: guideParameter):
             "Known indel frequency from the source"
         ]
     )
-    df_PAM.astype({"Known indel frequency from the source": "int32"})
+    df_PAM.astype({"Known indel frequency from the source": "float64"})
     skipped = int()
     cnt = 0
     for index, row in df_input_sequence.iterrows():
         for p in pam_string_collection:
             try:
-                # TODO: move to input processor
-                # input sequence length qualification
-                # if len(seed[gene_name]) < SEQUENCE_LENGTH_FOR_VALIDATION:
-                #     print("Sequence information is invalid. The operation is aborted.")
-                #     return -1
 
                 # input seed pre-processing
                 # skip the row with blank cell(s)
-                if pd.isna(row["#Sequence with Context (150 + 4 + 20 + 126)"]):
+                if pd.isna(row[
+                               f"#Sequence with Context ({parameter.len_leading_seq} + {parameter.len_pam} + {parameter.len_guide_seq} + {parameter.len_trailing_seq})"]):
                     skipped += 1
                     continue
                 leading_sequence, original_pam, protospacer, trailing_sequence = sequence_partitioner(row, parameter)
